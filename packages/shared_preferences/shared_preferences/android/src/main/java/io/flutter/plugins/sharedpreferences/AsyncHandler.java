@@ -2,74 +2,82 @@ package io.flutter.plugins.sharedpreferences;
 
 import android.os.Handler;
 import android.os.Looper;
+
 import java.util.Iterator;
 import java.util.ServiceLoader;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.ThreadFactory;
 
-/** Helper class to handle async tasks */
+/**
+ * Helper class to handle async tasks
+ */
 class AsyncHandler {
-  private ExecutorService executorService;
+    private ExecutorService executorService;
 
-  private final Handler handler;
+    private final Handler handler;
 
-  public AsyncHandler() {
-    Iterator<ExecutorService> executorServiceIterator =
-        ServiceLoader.load(ExecutorService.class).iterator();
-    if (executorServiceIterator.hasNext()) {
-      executorService = executorServiceIterator.next();
-    } else {
-      executorService =
-          Executors.newSingleThreadExecutor(
-              new ThreadFactory() {
-                @Override
-                public Thread newThread(Runnable r) {
-                  Thread thread = new Thread(r, "SharedPreferencesAsync");
-                  thread.setDaemon(true);
-                  return thread;
-                }
-              });
+    public AsyncHandler() {
+        Iterator<ExecutorService> executorServiceIterator =
+                ServiceLoader.load(ExecutorService.class).iterator();
+        if (executorServiceIterator.hasNext()) {
+            executorService = executorServiceIterator.next();
+        } else {
+            executorService =
+                    Executors.newSingleThreadExecutor(
+                            new ThreadFactory() {
+                                @Override
+                                public Thread newThread(Runnable r) {
+                                    Thread thread = new Thread(r, "SharedPreferencesAsync");
+                                    thread.setDaemon(true);
+                                    return thread;
+                                }
+                            });
+        }
+        handler = new Handler(Looper.getMainLooper());
     }
-    handler = new Handler(Looper.getMainLooper());
-  }
 
-  public <R> void executeAsync(
-      final Callable<R> executeInBackground, final Callback<R> resultCallback) {
-    executorService.execute(
-        new Runnable() {
-          @Override
-          public void run() {
-            try {
-              final R result = executeInBackground.call();
-              handler.post(
-                  new Runnable() {
+    public <R> void executeAsync(
+            final Callable<R> executeInBackground, final Callback<R> resultCallback) {
+        executorService.execute(
+                new Runnable() {
                     @Override
                     public void run() {
-                      resultCallback.onComplete(result);
+                        try {
+                            final R result = executeInBackground.call();
+                            handler.post(
+                                    new Runnable() {
+                                        @Override
+                                        public void run() {
+                                            resultCallback.onComplete(result);
+                                        }
+                                    });
+                        } catch (final Exception ex) {
+                            handler.post(
+                                    new Runnable() {
+                                        @Override
+                                        public void run() {
+                                            resultCallback.onError(ex);
+                                        }
+                                    });
+                        }
                     }
-                  });
-            } catch (final Exception ex) {
-              handler.post(
-                  new Runnable() {
-                    @Override
-                    public void run() {
-                      resultCallback.onError(ex);
-                    }
-                  });
-            }
-          }
-        });
-  }
+                });
+    }
 
-  public interface Callback<R> {
-    void onError(Exception e);
+    public <R> Future<R> submitToExecutor(final java.util.concurrent.Callable<R> executeInBackground) {
+        return executorService.submit(executeInBackground);
+    }
 
-    void onComplete(R result);
-  }
+    public interface Callback<R> {
+        void onError(Exception e);
 
-  public interface Callable<V> {
+        void onComplete(R result);
+    }
 
-    V call() throws Exception;
-  }
+    public interface Callable<V> {
+
+        V call() throws Exception;
+    }
 }
